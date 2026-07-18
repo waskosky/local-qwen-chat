@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+usage() {
+  cat <<'EOF'
+Start Codex with a local Qwen model.
+
+Usage: local-qwen-codex [q4|q6] [codex arguments...]
+
+The requested model is selected through Local Qwen Chat, the command waits for
+it to become ready, and Codex is started against the compatibility API.
+
+Environment:
+  LOCAL_QWEN_MODEL=q4|q6       Default model when none is specified
+  LOCAL_QWEN_URL=URL           Local Qwen Chat URL (default: http://127.0.0.1:8090)
+  LOCAL_QWEN_READY_TIMEOUT=N   Ready timeout in seconds (default: 600)
+  CODEX_BIN=PATH               Codex executable (default: codex from PATH)
+EOF
+}
+
+model="${LOCAL_QWEN_MODEL:-q4}"
+case "${1:-}" in
+  q4|q6)
+    model="$1"
+    shift
+    ;;
+  --help|-h)
+    usage
+    exit 0
+    ;;
+esac
+
+case "$model" in
+  q4) model_id="qwen3.6-27b-q4" ;;
+  q6) model_id="qwen3.6-27b-q6" ;;
+  *)
+    printf 'LOCAL_QWEN_MODEL must be q4 or q6, not %s.\n' "$model" >&2
+    exit 2
+    ;;
+esac
+
+base_url="${LOCAL_QWEN_URL:-http://127.0.0.1:8090}"
+base_url="${base_url%/}"
+ready_timeout="${LOCAL_QWEN_READY_TIMEOUT:-600}"
+codex_bin="${CODEX_BIN:-}"
+
+if [[ ! "$ready_timeout" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'LOCAL_QWEN_READY_TIMEOUT must be a positive integer.\n' >&2
+  exit 2
+fi
+if ! command -v curl >/dev/null 2>&1; then
+  printf 'curl is required. Install it with your system package manager.\n' >&2
+  exit 1
+fi
+if [[ -n "$codex_bin" ]]; then
+  if ! command -v "$codex_bin" >/dev/null 2>&1; then
+    printf 'CODEX_BIN is not executable: %s\n' "$codex_bin" >&2
+    exit 1
+  fi
+elif command -v codex >/dev/null 2>&1; then
+  codex_bin="$(command -v codex)"
+elif [[ -x /opt/local-qwen-chat/codex/bin/codex \
+  && -x /opt/local-qwen-chat/node/bin/node ]]; then
+  export PATH="/opt/local-qwen-chat/node/bin:$PATH"
+  codex_bin="/opt/local-qwen-chat/codex/bin/codex"
+else
+  cat >&2 <<'EOF'
+Codex CLI was not found. Either re-run the Local Qwen installer with
+--with-codex, or install Codex for your user:
+
+  npm install --global @openai/codex
+EOF
+  exit 1
+fi
+
+get_status() {
+  curl --silent --show-error --fail --max-time 5 "$base_url/api/models"
+}
+
+status="$(get_status 2>/dev/null || true)"
+if [[ -z "$status" ]]; then
+  cat >&2 <<EOF
+Local Qwen Chat is not responding at $base_url.
+Start it with:
+
+  sudo systemctl start qwen-chat-ui qwen-model-selector
+EOF
+  exit 1
+fi
+
+if [[ "$status" != *"\"servingModel\":\"$model\""* ]]; then
+  printf 'Selecting %s...\n' "$model_id"
+  response="$({
+    curl --silent --show-error --max-time 70 \
+      --request POST \
+      --header 'Content-Type: application/json' \
+      --header 'X-Local-Qwen-Action: switch-model' \
+      --data "{\"model\":\"$model\"}" \
+      --write-out $'\n%{http_code}' \
+      "$base_url/api/models"
+  } 2>&1)" || {
+    printf 'Could not request the model switch: %s\n' "$response" >&2
+    exit 1
+  }
+  http_status="${response##*$'\n'}"
+  response_body="${response%$'\n'*}"
+  if [[ "$http_status" != "202" ]]; then
+    printf 'Model switch failed (HTTP %s): %s\n' "$http_status" "$response_body" >&2
+    exit 1
+  fi
+
+  printf 'Waiting for %s to become ready' "$model_id"
+  deadline=$((SECONDS + ready_timeout))
+  while (( SECONDS < deadline )); do
+    status="$(get_status 2>/dev/null || true)"
+    if [[ "$status" == *"\"servingModel\":\"$model\""* ]]; then
+      break
+    fi
+    printf '.'
+    sleep 2
+  done
+  printf '\n'
+  if [[ "$status" != *"\"servingModel\":\"$model\""* ]]; then
+    printf '%s did not become ready within %s seconds. Run local-qwen-diagnose.\n' \
+      "$model_id" "$ready_timeout" >&2
+    exit 1
+  fi
+fi
+
+export CODEX_OSS_BASE_URL="$base_url/v1"
+printf 'Starting Codex with %s via %s\n' "$model_id" "$CODEX_OSS_BASE_URL"
+exec "$codex_bin" --oss --local-provider lmstudio --model "$model_id" "$@"

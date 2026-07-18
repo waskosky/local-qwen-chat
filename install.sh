@@ -22,6 +22,7 @@ YES=0
 DRY_RUN=0
 START_SERVICES=1
 CONFIGURE_TAILSCALE=1
+INSTALL_CODEX=0
 PROJECT_SOURCE=""
 TEMP_DIR=""
 CUDA_COMPILER=""
@@ -55,6 +56,7 @@ Options:
                              llama.cpp compute backend (default: auto)
   --no-start                Install without starting services
   --no-tailscale            Do not configure Tailscale Serve when available
+  --with-codex              Install a private, pinned Codex CLI for the launcher
   --yes, -y                 Accept the disk/download confirmation
   --dry-run                 Print detection and planned actions only
   --help, -h                Show this help
@@ -90,6 +92,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-tailscale)
       CONFIGURE_TAILSCALE=0
+      shift
+      ;;
+    --with-codex)
+      INSTALL_CODEX=1
       shift
       ;;
     --yes|-y)
@@ -227,6 +233,7 @@ Local Qwen Chat installation plan
   Node.js:         v$NODE_VERSION
   Local URL:       http://127.0.0.1:8090
   Tailscale Serve: $([[ "$CONFIGURE_TAILSCALE" == "1" ]] && printf 'auto' || printf 'disabled')
+  Codex CLI:       $([[ "$INSTALL_CODEX" == "1" ]] && printf 'v%s (private runtime)' "$CODEX_VERSION" || printf 'use existing installation')
 
 EOF
 }
@@ -363,6 +370,35 @@ install_node() {
   ln -sfn "node-v$NODE_VERSION" "$NODE_LINK"
 }
 
+install_codex() {
+  local codex_dir codex_bin detected_version
+  codex_dir="$INSTALL_ROOT/codex"
+  codex_bin="$codex_dir/bin/codex"
+  detected_version=""
+  if [[ -x "$codex_bin" ]]; then
+    detected_version="$(PATH="$NODE_LINK/bin:$PATH" "$codex_bin" --version 2>/dev/null || true)"
+  fi
+  if [[ "$detected_version" == "codex-cli $CODEX_VERSION" ]]; then
+    success "Codex CLI v$CODEX_VERSION is already installed."
+    return
+  fi
+
+  log "Installing Codex CLI v$CODEX_VERSION into $codex_dir"
+  rm -rf -- "$codex_dir"
+  install -d -m 0755 "$codex_dir"
+  PATH="$NODE_LINK/bin:$PATH" "$NODE_LINK/bin/npm" install \
+    --global \
+    --prefix "$codex_dir" \
+    --no-audit \
+    --no-fund \
+    "@openai/codex@$CODEX_VERSION"
+  [[ -x "$codex_bin" ]] || die "Codex CLI installation did not produce $codex_bin"
+  detected_version="$(PATH="$NODE_LINK/bin:$PATH" "$codex_bin" --version)"
+  [[ "$detected_version" == "codex-cli $CODEX_VERSION" ]] \
+    || die "Codex CLI version verification failed: $detected_version"
+  success "Codex CLI v$CODEX_VERSION installed."
+}
+
 install_llama_cpp() {
   local source_dir build_dir version_dir install_dir staging jobs detected_commit
   local -a cmake_args
@@ -450,6 +486,7 @@ install_application() {
   install -m 0755 "$PROJECT_SOURCE/scripts/model-server" "$LIBEXEC_DIR/model-server"
   install -m 0755 "$PROJECT_SOURCE/scripts/model-selector" "$LIBEXEC_DIR/model-selector"
   install -m 0755 "$PROJECT_SOURCE/scripts/diagnose.sh" /usr/local/bin/local-qwen-diagnose
+  install -m 0755 "$PROJECT_SOURCE/scripts/codex-local" /usr/local/bin/local-qwen-codex
   install -m 0644 "$PROJECT_SOURCE/config/qwen3.6-codex.jinja" "$CONFIG_DIR/qwen3.6-codex.jinja"
 
   if [[ ! -f "$CONFIG_DIR/settings.env" ]]; then
@@ -496,6 +533,9 @@ ensure_model() {
 }
 
 install_node
+if [[ "$INSTALL_CODEX" == "1" ]]; then
+  install_codex
+fi
 install_llama_cpp
 
 if [[ "$MODEL_CHOICE" == "both" || "$MODEL_CHOICE" == "q4" ]]; then
@@ -581,6 +621,8 @@ printf '  local-qwen-diagnose\n'
 printf '  systemctl status qwen-chat-ui qwen36-q4 qwen36-q6\n'
 printf '  journalctl -u qwen-chat-ui -u qwen36-q4 -u qwen36-q6 -f\n'
 printf '\nCodex CLI:\n'
-printf '  export CODEX_OSS_BASE_URL=http://127.0.0.1:8090/v1\n'
-printf '  codex --oss --local-provider lmstudio --model qwen3.6-27b-q4\n'
+printf '  local-qwen-codex q4\n'
+if [[ "$MODEL_CHOICE" == "both" || "$MODEL_CHOICE" == "q6" ]]; then
+  printf '  local-qwen-codex q6\n'
+fi
 printf '\nRe-run this installer at any time to repair or update the installation.\n'
