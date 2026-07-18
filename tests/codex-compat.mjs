@@ -101,6 +101,8 @@ const catalog = addCodexModelMetadata(
 );
 assert.equal(catalog.models[0].slug, "qwen3.6-27b-q4");
 assert.equal(catalog.models[0].context_window, 8192);
+assert.equal(catalog.models[0].auto_compact_token_limit, 5324);
+assert.equal(catalog.models[0].effective_context_window_percent, 70);
 assert.equal(catalog.models[0].multi_agent_version, "disabled");
 
 process.stdout.write("Codex compatibility checks passed.\n");

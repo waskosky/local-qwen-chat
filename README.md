@@ -129,6 +129,13 @@ Edit `/etc/local-qwen-chat/settings.env` to change context size, thread counts,
 KV cache types, GPU fit headroom, the local reasoning-token budget, or extra
 llama-server arguments. Then restart the selected model:
 
+The default context is 32,768 tokens. This leaves enough room for Codex's base
+instructions, skills, and a minimal MCP tool profile while still allowing
+multi-turn work; the advertised metadata asks Codex to compact near 65% of the
+window, leaving safety room for tool results and tokenizer-estimation variance.
+Context consumes KV-cache memory, so memory-constrained machines can
+lower `QWEN_CTX_SIZE` at the cost of shorter agent sessions.
+
 ```bash
 sudo systemctl restart qwen36-q4   # or qwen36-q6
 ```
