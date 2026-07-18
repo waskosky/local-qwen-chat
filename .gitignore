@@ -1,0 +1,9 @@
+*.gguf
+*.gguf.part
+*.corrupt-*
+*.log
+.DS_Store
+.env.local
+node_modules/
+coverage/
+screenshots/

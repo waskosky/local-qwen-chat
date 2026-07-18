@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+config_dir="${LOCAL_QWEN_CONFIG_DIR:-/etc/local-qwen-chat}"
+
+if [[ ! -r "$config_dir/paths.env" ]]; then
+  printf 'Missing installation config: %s\n' "$config_dir/paths.env" >&2
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$config_dir/paths.env"
+if [[ -r "$config_dir/settings.env" ]]; then
+  # shellcheck source=/dev/null
+  source "$config_dir/settings.env"
+fi
+
+model_key="${1:-}"
+if [[ $# -gt 0 ]]; then
+  shift
+fi
+
+case "$model_key" in
+  q4)
+    model="$QWEN_Q4_MODEL"
+    alias="qwen3.6-27b-q4"
+    ;;
+  q6)
+    model="$QWEN_Q6_MODEL"
+    alias="qwen3.6-27b-q6"
+    ;;
+  *)
+    printf 'Usage: %s q4|q6 [llama-server arguments...]\n' "$0" >&2
+    exit 2
+    ;;
+esac
+
+server="$LLAMA_CPP_DIR/bin/llama-server"
+if [[ ! -x "$server" ]]; then
+  printf 'llama-server is not installed: %s\n' "$server" >&2
+  exit 1
+fi
+if [[ ! -r "$model" ]]; then
+  printf 'Model is not installed: %s\n' "$model" >&2
+  exit 1
+fi
+
+export LD_LIBRARY_PATH="$LLAMA_CPP_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export CUDA_SCALE_LAUNCH_QUEUES="${CUDA_SCALE_LAUNCH_QUEUES:-4x}"
+
+args=(
+  --model "$model"
+  --alias "$alias"
+  --ctx-size "${QWEN_CTX_SIZE:-8192}"
+  --parallel "${QWEN_PARALLEL:-1}"
+  --cache-type-k "${QWEN_CACHE_TYPE_K:-q8_0}"
+  --cache-type-v "${QWEN_CACHE_TYPE_V:-q8_0}"
+  --jinja
+  --cors-origins localhost
+  --host "${QWEN_HOST:-127.0.0.1}"
+  --port "${QWEN_PORT:-8080}"
+)
+
+if [[ "${QWEN_THREADS:-0}" =~ ^[1-9][0-9]*$ ]]; then
+  args+=(--threads "$QWEN_THREADS")
+fi
+if [[ "${QWEN_THREADS_BATCH:-0}" =~ ^[1-9][0-9]*$ ]]; then
+  args+=(--threads-batch "$QWEN_THREADS_BATCH")
+fi
+
+case "${QWEN_BACKEND:-cpu}" in
+  cpu)
+    args+=(--n-gpu-layers 0)
+    ;;
+  cuda|vulkan)
+    args+=(
+      --n-gpu-layers auto
+      --split-mode layer
+      --fit on
+      --fit-target "${QWEN_FIT_TARGET:-1536}"
+    )
+    if [[ "${QWEN_FLASH_ATTN:-on}" != "off" ]]; then
+      args+=(--flash-attn "${QWEN_FLASH_ATTN:-on}")
+    fi
+    ;;
+  *)
+    printf 'Unsupported backend in paths.env: %s\n' "$QWEN_BACKEND" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "${QWEN_MTP:-0}" == "1" ]]; then
+  args+=(--spec-type draft-mtp)
+fi
+
+if [[ -n "${QWEN_EXTRA_ARGS:-}" ]]; then
+  # This is an administrator-owned config file; intentional word splitting
+  # lets operators add ordinary llama-server flags without editing this script.
+  # shellcheck disable=SC2206
+  extra_args=( $QWEN_EXTRA_ARGS )
+  args+=("${extra_args[@]}")
+fi
+
+exec "$server" "${args[@]}" "$@"

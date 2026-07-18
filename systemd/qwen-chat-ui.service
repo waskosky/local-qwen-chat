@@ -1,0 +1,23 @@
+[Unit]
+Description=Local Qwen chat web interface
+After=network.target qwen-model-selector.service
+Wants=qwen-model-selector.service
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/local-qwen-chat/paths.env
+EnvironmentFile=-/etc/local-qwen-chat/settings.env
+WorkingDirectory=/opt/local-qwen-chat/app
+ExecStart=/opt/local-qwen-chat/node/bin/node /opt/local-qwen-chat/app/server.mjs
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/local-qwen-chat
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

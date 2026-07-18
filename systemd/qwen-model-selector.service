@@ -1,0 +1,12 @@
+[Unit]
+Description=Start the selected local Qwen model
+After=network.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/local-qwen-chat/paths.env
+ExecStart=/usr/local/libexec/local-qwen-chat/model-selector
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#0d1117">
+    <meta name="description" content="Private chat with the local Qwen3.6 coding model">
+    <title>Local Qwen Chat</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="/styles.css?v=portable-installer-1">
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="sidebar-scrim" id="sidebarScrim" aria-hidden="true"></div>
+
+      <aside class="sidebar" id="sidebar" aria-label="Conversation history">
+        <div class="brand-row">
+          <a class="brand" href="/" aria-label="Local Qwen home">
+            <span class="brand-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M8.2 5.5 2.7 12l5.5 6.5 1.6-1.3L5.4 12l4.4-5.2-1.6-1.3Zm7.6 0-1.6 1.3 4.4 5.2-4.4 5.2 1.6 1.3 5.5-6.5-5.5-6.5ZM13.5 3l-4 18h2l4-18h-2Z"/></svg>
+            </span>
+            <span>Local Qwen</span>
+          </a>
+          <button class="icon-button sidebar-close" id="sidebarClose" type="button" aria-label="Close sidebar">
+            <svg viewBox="0 0 16 16"><path d="M3.7 3.7a.75.75 0 0 1 1.06 0L8 6.94l3.24-3.24a.75.75 0 1 1 1.06 1.06L9.06 8l3.24 3.24a.75.75 0 0 1-1.06 1.06L8 9.06 4.76 12.3a.75.75 0 0 1-1.06-1.06L6.94 8 3.7 4.76a.75.75 0 0 1 0-1.06Z"/></svg>
+          </button>
+        </div>
+
+        <button class="new-chat-button" id="newChatButton" type="button">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7.75 1.5a.75.75 0 0 1 .75.75v5.25h5.25a.75.75 0 0 1 0 1.5H8.5v5.25a.75.75 0 0 1-1.5 0V9H1.75a.75.75 0 0 1 0-1.5H7V2.25a.75.75 0 0 1 .75-.75Z"/></svg>
+          New chat
+          <span class="shortcut">Ctrl K</span>
+        </button>
+
+        <div class="history-heading">
+          <span>Recent</span>
+          <button class="text-button" id="clearHistoryButton" type="button">Clear</button>
+        </div>
+        <nav class="history-list" id="historyList" aria-label="Recent conversations"></nav>
+
+        <div class="sidebar-footer">
+          <div class="model-card">
+            <span class="model-icon" aria-hidden="true">
+              <svg viewBox="0 0 16 16"><path d="M8 1.25a3.25 3.25 0 0 0-3.12 4.16A3.5 3.5 0 0 0 3.5 12.13v.12A2.75 2.75 0 0 0 8 14.37a2.75 2.75 0 0 0 4.5-2.12v-.12a3.5 3.5 0 0 0-1.38-6.72A3.25 3.25 0 0 0 8 1.25Zm0 1.5a1.75 1.75 0 0 1 1.62 2.41l-.38.94.99.09A2 2 0 0 1 11 10.03v2.22a1.25 1.25 0 0 1-2.5 0V9.5H7v2.75a1.25 1.25 0 0 1-2.5 0v-2.22a2 2 0 0 1 .77-3.84l.99-.09-.38-.94A1.75 1.75 0 0 1 8 2.75Z"/></svg>
+            </span>
+            <span class="model-copy">
+              <strong>Qwen3.6 27B</strong>
+              <small><span id="sidebarModelQuantization">Q4_K_M</span> · <span id="sidebarModelState">runs locally</span></small>
+            </span>
+            <span class="privacy-dot" title="Tailnet only"></span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-panel">
+        <header class="topbar">
+          <div class="topbar-left">
+            <button class="icon-button menu-button" id="menuButton" type="button" aria-label="Open sidebar">
+              <svg viewBox="0 0 16 16"><path d="M1 3.25a.75.75 0 0 1 .75-.75h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 3.25Zm0 4.5A.75.75 0 0 1 1.75 7h12.5a.75.75 0 0 1 0 1.5H1.75A.75.75 0 0 1 1 7.75Zm.75 3.75a.75.75 0 0 0 0 1.5h12.5a.75.75 0 0 0 0-1.5H1.75Z"/></svg>
+            </button>
+            <div class="repo-name">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 2.75A1.75 1.75 0 0 1 3.75 1h8.5A1.75 1.75 0 0 1 14 2.75v10.5A1.75 1.75 0 0 1 12.25 15h-8.5A1.75 1.75 0 0 1 2 13.25V2.75Zm1.5 0v10.5c0 .14.11.25.25.25h8.5c.14 0 .25-.11.25-.25V2.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm2.25 1.5a.75.75 0 0 1 .75.75v5.19l1.22-1.22a.75.75 0 0 1 1.06 0L10 10.19V5a.75.75 0 0 1 1.5 0v7a.75.75 0 0 1-1.28.53L8.25 10.56l-1.97 1.97A.75.75 0 0 1 5 12V5a.75.75 0 0 1 .75-.75Z"/></svg>
+              <span class="repo-owner">local</span><span class="repo-slash">/</span>
+              <div class="model-selector" id="modelSelector">
+                <button class="model-selector-button" id="modelSelectorButton" type="button" aria-label="Switch local model" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="currentModelName">qwen3.6-27b-q4</span>
+                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4.22 6.22a.75.75 0 0 1 1.06 0L8 8.94l2.72-2.72a.75.75 0 1 1 1.06 1.06l-3.25 3.25a.75.75 0 0 1-1.06 0L4.22 7.28a.75.75 0 0 1 0-1.06Z"/></svg>
+                </button>
+                <div class="model-menu" id="modelMenu" role="listbox" aria-label="Available local models" hidden>
+                  <div class="model-menu-heading">Switch model</div>
+                  <button class="model-option" type="button" role="option" aria-selected="true" data-model="q4">
+                    <span class="model-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0L2.72 7.78a.75.75 0 0 1 1.06-1.06L7 9.94l5.72-5.72a.75.75 0 0 1 1.06 0Z"/></svg></span>
+                    <span class="model-option-copy"><strong>Q4_K_M</strong><small>Faster default · 18.0 GB</small></span>
+                    <span class="model-option-state" data-model-state="q4">Ready</span>
+                  </button>
+                  <button class="model-option" type="button" role="option" aria-selected="false" data-model="q6">
+                    <span class="model-option-check" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0L2.72 7.78a.75.75 0 0 1 1.06-1.06L7 9.94l5.72-5.72a.75.75 0 0 1 1.06 0Z"/></svg></span>
+                    <span class="model-option-copy"><strong>Q6_K_L</strong><small>Higher fidelity · 24.3 GB</small></span>
+                    <span class="model-option-state" data-model-state="q6">Stopped</span>
+                  </button>
+                  <p class="model-menu-note">Switching stops the current model first, so only one occupies memory.</p>
+                </div>
+              </div>
+              <span class="repo-badge">Private</span>
+            </div>
+          </div>
+          <div class="topbar-actions">
+            <div class="status-pill" id="statusPill" role="status" aria-live="polite">
+              <span class="status-dot"></span>
+              <span id="statusText">Connecting</span>
+            </div>
+            <button class="icon-button" id="settingsButton" type="button" aria-label="Chat settings" title="Chat settings">
+              <svg viewBox="0 0 16 16"><path d="M6.13 1.18a.75.75 0 0 1 .73-.58h2.28c.35 0 .65.24.73.58l.27 1.13c.27.12.53.27.77.44l1.1-.34c.34-.1.7.04.88.34l1.14 1.98c.18.3.12.7-.14.93l-.84.79c.03.3.03.59 0 .88l.84.8c.26.23.32.62.14.92l-1.14 1.98a.75.75 0 0 1-.88.34l-1.1-.34c-.24.17-.5.32-.77.44l-.27 1.13a.75.75 0 0 1-.73.58H6.86a.75.75 0 0 1-.73-.58l-.27-1.13a5.4 5.4 0 0 1-.77-.44l-1.1.34a.75.75 0 0 1-.88-.34l-1.14-1.98a.75.75 0 0 1 .14-.92l.84-.8a5.1 5.1 0 0 1 0-.88l-.84-.8a.75.75 0 0 1-.14-.92l1.14-1.98a.75.75 0 0 1 .88-.34l1.1.34c.24-.17.5-.32.77-.44l.27-1.13ZM8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Z"/></svg>
+            </button>
+            <button class="icon-button" id="themeButton" type="button" aria-label="Toggle color theme" title="Toggle color theme">
+              <svg class="theme-icon theme-icon-light" viewBox="0 0 16 16"><path d="M8 11.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7ZM8 .5a.75.75 0 0 1 .75.75v1a.75.75 0 0 1-1.5 0v-1A.75.75 0 0 1 8 .5Zm0 12.5a.75.75 0 0 1 .75.75v1a.75.75 0 0 1-1.5 0v-1A.75.75 0 0 1 8 13ZM15.5 8a.75.75 0 0 1-.75.75h-1a.75.75 0 0 1 0-1.5h1A.75.75 0 0 1 15.5 8ZM3 8a.75.75 0 0 1-.75.75h-1a.75.75 0 0 1 0-1.5h1A.75.75 0 0 1 3 8Zm10.3-5.3a.75.75 0 0 1 0 1.06l-.7.7a.75.75 0 0 1-1.06-1.06l.7-.7a.75.75 0 0 1 1.06 0Zm-8.84 8.84a.75.75 0 0 1 0 1.06l-.7.7a.75.75 0 1 1-1.06-1.06l.7-.7a.75.75 0 0 1 1.06 0Zm8.84 1.76a.75.75 0 0 1-1.06 0l-.7-.7a.75.75 0 0 1 1.06-1.06l.7.7a.75.75 0 0 1 0 1.06ZM4.46 4.46a.75.75 0 0 1-1.06 0l-.7-.7A.75.75 0 0 1 3.76 2.7l.7.7a.75.75 0 0 1 0 1.06Z"/></svg>
+              <svg class="theme-icon theme-icon-dark" viewBox="0 0 16 16"><path d="M9.6.62a.75.75 0 0 1 .11.83A5.75 5.75 0 1 0 14.55 10a.75.75 0 0 1 1.03.9A7.25 7.25 0 1 1 8.7.15a.75.75 0 0 1 .9.47Z"/></svg>
+            </button>
+          </div>
+        </header>
+
+        <section class="chat-scroll" id="chatScroll" aria-label="Chat messages">
+          <div class="conversation" id="conversation">
+            <section class="empty-state" id="emptyState">
+              <div class="hero-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M8.2 5.5 2.7 12l5.5 6.5 1.6-1.3L5.4 12l4.4-5.2-1.6-1.3Zm7.6 0-1.6 1.3 4.4 5.2-4.4 5.2 1.6 1.3 5.5-6.5-5.5-6.5ZM13.5 3l-4 18h2l4-18h-2Z"/></svg>
+              </div>
+              <h1>What are we building?</h1>
+              <p>Chat privately with Qwen3.6 27B running on this machine. Your prompts stay on the tailnet.</p>
+              <div class="suggestion-grid" id="suggestionGrid">
+                <button class="suggestion-card" type="button" data-prompt="Review this function for correctness and edge cases:\n\n">
+                  <svg viewBox="0 0 16 16"><path d="M5.75 1a.75.75 0 0 1 .75.75V3h3V1.75a.75.75 0 0 1 1.5 0V3h.25A2.75 2.75 0 0 1 14 5.75v6.5A2.75 2.75 0 0 1 11.25 15h-6.5A2.75 2.75 0 0 1 2 12.25v-6.5A2.75 2.75 0 0 1 4.75 3H5V1.75A.75.75 0 0 1 5.75 1Zm-1 3.5A1.25 1.25 0 0 0 3.5 5.75v6.5c0 .69.56 1.25 1.25 1.25h6.5c.69 0 1.25-.56 1.25-1.25v-6.5c0-.69-.56-1.25-1.25-1.25h-6.5Z"/></svg>
+                  <span><strong>Review code</strong><small>Find bugs and edge cases</small></span>
+                </button>
+                <button class="suggestion-card" type="button" data-prompt="Help me design a clean implementation plan for this feature:\n\n">
+                  <svg viewBox="0 0 16 16"><path d="M1.75 2.5a.75.75 0 0 0 0 1.5h8.5a.75.75 0 0 0 0-1.5h-8.5Zm0 4.75a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5h-5.5ZM1 12.75a.75.75 0 0 1 .75-.75h3.5a.75.75 0 0 1 0 1.5h-3.5a.75.75 0 0 1-.75-.75Zm11.78-6.03a.75.75 0 0 0-1.06-1.06l-3.5 3.5a.75.75 0 0 0-.22.53v1.56c0 .41.34.75.75.75h1.56c.2 0 .39-.08.53-.22l3.5-3.5a.75.75 0 0 0 0-1.06l-1.56-1.56Z"/></svg>
+                  <span><strong>Plan a feature</strong><small>Break work into clear steps</small></span>
+                </button>
+                <button class="suggestion-card" type="button" data-prompt="Explain this code clearly, including its data flow and tradeoffs:\n\n">
+                  <svg viewBox="0 0 16 16"><path d="M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 1.5a5.5 5.5 0 1 1 0 11 5.5 5.5 0 0 1 0-11ZM6.75 6a1.25 1.25 0 1 1 1.9 1.07c-.94.56-1.4 1.1-1.4 2.18a.75.75 0 0 0 1.5 0c0-.46.1-.62.67-.96A2.75 2.75 0 1 0 5.25 6a.75.75 0 0 0 1.5 0ZM8 12a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>
+                  <span><strong>Explain code</strong><small>Understand an unfamiliar area</small></span>
+                </button>
+                <button class="suggestion-card" type="button" data-prompt="Write tests for the following behavior. Cover happy paths, failures, and boundary cases:\n\n">
+                  <svg viewBox="0 0 16 16"><path d="M5.5 1.75A.75.75 0 0 1 6.25 1h3.5a.75.75 0 0 1 .75.75V4l3.15 7.02A2.85 2.85 0 0 1 11.05 15h-6.1a2.85 2.85 0 0 1-2.6-3.98L5.5 4V1.75ZM7 2.5v1.66c0 .1-.02.21-.06.31L5.8 7h4.4L9.06 4.47A.75.75 0 0 1 9 4.16V2.5H7Zm-1.87 6L3.72 11.64a1.35 1.35 0 0 0 1.23 1.86h6.1a1.35 1.35 0 0 0 1.23-1.86L10.87 8.5H5.13Z"/></svg>
+                  <span><strong>Write tests</strong><small>Build a useful test suite</small></span>
+                </button>
+              </div>
+            </section>
+            <div class="message-list" id="messageList" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <div class="composer-dock">
+          <form class="composer" id="composer">
+            <label class="sr-only" for="promptInput">Message Qwen</label>
+            <textarea id="promptInput" rows="1" placeholder="Ask Qwen about your code…" autocomplete="off" spellcheck="true"></textarea>
+            <div class="composer-toolbar">
+              <label class="thinking-toggle" title="Let Qwen reason before answering">
+                <input id="thinkingToggle" type="checkbox" checked>
+                <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.25a4.75 4.75 0 0 0-2.85 8.55c.32.24.57.56.67.93l.1.38h4.16l.1-.38c.1-.37.35-.69.67-.93A4.75 4.75 0 0 0 8 1.25ZM6 12.6h4v.65A1.75 1.75 0 0 1 8.25 15h-.5A1.75 1.75 0 0 1 6 13.25v-.65Z"/></svg>
+                <span>Think</span>
+              </label>
+              <span class="composer-hint">Enter to send · Shift Enter for a new line</span>
+              <button class="send-button" id="sendButton" type="submit" aria-label="Send message">
+                <svg class="send-icon" viewBox="0 0 16 16"><path d="M1.51 2.21a.75.75 0 0 1 .81-.16l12.25 5.25a.75.75 0 0 1 0 1.38L2.32 13.93a.75.75 0 0 1-1.02-.85L2.35 8 1.3 2.92a.75.75 0 0 1 .21-.71ZM3 8.75l-.69 3.34L12.36 8 2.31 3.69 3 7.25h4.75a.75.75 0 0 1 0 1.5H3Z"/></svg>
+                <svg class="stop-icon" viewBox="0 0 16 16"><path d="M3.25 2h9.5C13.44 2 14 2.56 14 3.25v9.5c0 .69-.56 1.25-1.25 1.25h-9.5C2.56 14 2 13.44 2 12.75v-9.5C2 2.56 2.56 2 3.25 2Z"/></svg>
+              </button>
+            </div>
+          </form>
+          <p class="privacy-note">Qwen runs locally. Conversations are saved only in this browser.</p>
+        </div>
+      </main>
+    </div>
+
+    <dialog class="settings-dialog" id="settingsDialog">
+      <form method="dialog" id="settingsForm">
+        <div class="dialog-header">
+          <div>
+            <h2>Chat settings</h2>
+            <p>Applied to new responses.</p>
+          </div>
+          <button class="icon-button" value="cancel" type="submit" aria-label="Close settings">
+            <svg viewBox="0 0 16 16"><path d="M3.7 3.7a.75.75 0 0 1 1.06 0L8 6.94l3.24-3.24a.75.75 0 1 1 1.06 1.06L9.06 8l3.24 3.24a.75.75 0 0 1-1.06 1.06L8 9.06 4.76 12.3a.75.75 0 0 1-1.06-1.06L6.94 8 3.7 4.76a.75.75 0 0 1 0-1.06Z"/></svg>
+          </button>
+        </div>
+        <label class="field-label" for="systemPrompt">System instructions</label>
+        <textarea class="settings-textarea" id="systemPrompt" rows="5"></textarea>
+        <div class="settings-grid">
+          <label>
+            <span class="field-label">Temperature</span>
+            <input class="field-input" id="temperatureInput" type="number" min="0" max="2" step="0.1" value="0.6">
+          </label>
+          <label>
+            <span class="field-label">Max response tokens</span>
+            <select class="field-input" id="maxTokensInput">
+              <option value="1024">1,024</option>
+              <option value="2048" selected>2,048</option>
+              <option value="4096">4,096</option>
+              <option value="6144">6,144</option>
+            </select>
+          </label>
+        </div>
+        <div class="dialog-footer">
+          <button class="secondary-button" id="resetSettingsButton" type="button">Reset defaults</button>
+          <button class="primary-button" id="saveSettingsButton" value="default" type="submit">Save settings</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js?v=portable-installer-1"></script>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+[Unit]
+Description=Qwen3.6 27B Q6_K_L llama.cpp API
+After=network.target
+Conflicts=qwen36-q4.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/local-qwen-chat/paths.env
+EnvironmentFile=-/etc/local-qwen-chat/settings.env
+ExecStart=/usr/local/libexec/local-qwen-chat/model-server q6
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=0
+TimeoutStopSec=45
+KillSignal=SIGINT
+LimitNOFILE=65536
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
