@@ -440,6 +440,8 @@ install_llama_cpp() {
 install_application() {
   log "Installing the web application"
   install -m 0644 "$PROJECT_SOURCE/server.mjs" "$APP_DIR/server.mjs"
+  rm -rf -- "${APP_DIR:?}/lib"
+  cp -a -- "$PROJECT_SOURCE/lib" "$APP_DIR/lib"
   rm -rf -- "$APP_DIR/public"
   cp -a -- "$PROJECT_SOURCE/public" "$APP_DIR/public"
   find "$APP_DIR/public" -type d -exec chmod 0755 {} +
@@ -448,6 +450,7 @@ install_application() {
   install -m 0755 "$PROJECT_SOURCE/scripts/model-server" "$LIBEXEC_DIR/model-server"
   install -m 0755 "$PROJECT_SOURCE/scripts/model-selector" "$LIBEXEC_DIR/model-selector"
   install -m 0755 "$PROJECT_SOURCE/scripts/diagnose.sh" /usr/local/bin/local-qwen-diagnose
+  install -m 0644 "$PROJECT_SOURCE/config/qwen3.6-codex.jinja" "$CONFIG_DIR/qwen3.6-codex.jinja"
 
   if [[ ! -f "$CONFIG_DIR/settings.env" ]]; then
     install -m 0644 "$PROJECT_SOURCE/config/settings.env" "$CONFIG_DIR/settings.env"
@@ -577,4 +580,7 @@ printf '\nUseful commands:\n'
 printf '  local-qwen-diagnose\n'
 printf '  systemctl status qwen-chat-ui qwen36-q4 qwen36-q6\n'
 printf '  journalctl -u qwen-chat-ui -u qwen36-q4 -u qwen36-q6 -f\n'
+printf '\nCodex CLI:\n'
+printf '  export CODEX_OSS_BASE_URL=http://127.0.0.1:8090/v1\n'
+printf '  codex --oss --local-provider lmstudio --model qwen3.6-27b-q4\n'
 printf '\nRe-run this installer at any time to repair or update the installation.\n'

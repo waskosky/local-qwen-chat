@@ -32,6 +32,7 @@ fi
 
 node --check "$root/server.mjs"
 node --check "$root/public/app.js"
+node "$root/tests/codex-compat.mjs"
 
 plan="$($root/install.sh --dry-run --models both --backend cpu)"
 [[ "$plan" == *"Backend:         cpu"* ]]
@@ -45,6 +46,7 @@ fi
 
 mkdir -p "$temp_dir/config" "$temp_dir/llama/bin" "$temp_dir/llama/lib" "$temp_dir/models"
 touch "$temp_dir/models/q4.gguf" "$temp_dir/models/q6.gguf"
+touch "$temp_dir/config/qwen3.6-codex.jinja"
 cat > "$temp_dir/llama/bin/llama-server" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@"
@@ -66,6 +68,9 @@ EOF
 launcher_output="$(LOCAL_QWEN_CONFIG_DIR="$temp_dir/config" "$root/scripts/model-server" q4)"
 [[ "$launcher_output" == *"qwen3.6-27b-q4"* ]]
 [[ "$launcher_output" == *"--n-gpu-layers"* ]]
+[[ "$launcher_output" == *"--chat-template-file"* ]]
+[[ "$launcher_output" == *"--reasoning-format"* ]]
+[[ "$launcher_output" == *"--reasoning-budget"* ]]
 [[ "$launcher_output" == *$'0\n'* ]]
 
 sed -i 's/QWEN_BACKEND=cpu/QWEN_BACKEND=cuda/' "$temp_dir/config/paths.env"

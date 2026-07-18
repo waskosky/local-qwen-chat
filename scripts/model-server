@@ -47,15 +47,22 @@ fi
 
 export LD_LIBRARY_PATH="$LLAMA_CPP_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 export CUDA_SCALE_LAUNCH_QUEUES="${CUDA_SCALE_LAUNCH_QUEUES:-4x}"
+chat_template="${QWEN_CHAT_TEMPLATE:-$config_dir/qwen3.6-codex.jinja}"
+if [[ ! -r "$chat_template" ]]; then
+  printf 'Qwen Codex chat template is not installed: %s\n' "$chat_template" >&2
+  exit 1
+fi
 
 args=(
   --model "$model"
   --alias "$alias"
-  --ctx-size "${QWEN_CTX_SIZE:-8192}"
+  --ctx-size "${QWEN_CTX_SIZE:-16384}"
   --parallel "${QWEN_PARALLEL:-1}"
   --cache-type-k "${QWEN_CACHE_TYPE_K:-q8_0}"
   --cache-type-v "${QWEN_CACHE_TYPE_V:-q8_0}"
   --jinja
+  --chat-template-file "$chat_template"
+  --reasoning-format "${QWEN_REASONING_FORMAT:-deepseek}"
   --cors-origins localhost
   --host "${QWEN_HOST:-127.0.0.1}"
   --port "${QWEN_PORT:-8080}"
@@ -91,6 +98,10 @@ esac
 
 if [[ "${QWEN_MTP:-0}" == "1" ]]; then
   args+=(--spec-type draft-mtp)
+fi
+
+if [[ "${QWEN_REASONING_BUDGET:-512}" =~ ^[0-9]+$ ]]; then
+  args+=(--reasoning-budget "${QWEN_REASONING_BUDGET:-512}")
 fi
 
 if [[ -n "${QWEN_EXTRA_ARGS:-}" ]]; then

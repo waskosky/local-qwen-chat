@@ -6,12 +6,20 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 
+import {
+  addCodexModelMetadata,
+  createResponsesSseTransform,
+  restoreNamespacedFunctionCalls,
+  rewriteResponsesRequest,
+} from "./lib/codex-compat.mjs";
+
 const HOST = process.env.CHAT_HOST || "127.0.0.1";
 const PORT = Number(process.env.CHAT_PORT || 8090);
 const UPSTREAM_HOST = process.env.QWEN_HOST || "127.0.0.1";
 const UPSTREAM_PORT = Number(process.env.QWEN_PORT || 8080);
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "public");
 const MAX_REQUEST_BYTES = 2 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_CONTROL_REQUEST_BYTES = 4 * 1024;
 const MODEL_STATE_DIR = process.env.MODEL_STATE_DIR || "/var/lib/local-qwen-chat";
 const MODEL_STATE_FILE = path.join(MODEL_STATE_DIR, "active-model");
@@ -26,7 +34,7 @@ const MODEL_CONFIGS = Object.freeze({
     quantization: "Q4_K_M",
     unit: "qwen36-q4.service",
     modelPath: process.env.QWEN_Q4_MODEL || "/var/lib/local-qwen-chat/models/Qwen_Qwen3.6-27B-Q4_K_M.gguf",
-    contextWindow: 8192,
+    contextWindow: 16384,
     parameterCount: 27_320_697_856,
     sizeBytes: 17_984_872_960,
     description: "Faster · recommended default",
@@ -38,7 +46,7 @@ const MODEL_CONFIGS = Object.freeze({
     quantization: "Q6_K_L",
     unit: "qwen36-q6.service",
     modelPath: process.env.QWEN_Q6_MODEL || "/var/lib/local-qwen-chat/models/Qwen_Qwen3.6-27B-Q6_K_L.gguf",
-    contextWindow: 8192,
+    contextWindow: 16384,
     parameterCount: 27_320_697_856,
     sizeBytes: 24_291_299_840,
     description: "Higher fidelity · slower",
@@ -63,6 +71,34 @@ const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
 };
+
+const HOP_BY_HOP_HEADERS = [
+  "connection",
+  "host",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+];
+
+function upstreamHeaders(req, bodyLength = null) {
+  const headers = { ...req.headers };
+  for (const name of HOP_BY_HOP_HEADERS) delete headers[name];
+  headers.host = `${UPSTREAM_HOST}:${UPSTREAM_PORT}`;
+  headers["accept-encoding"] = "identity";
+  if (bodyLength !== null) headers["content-length"] = String(bodyLength);
+  return headers;
+}
+
+function downstreamHeaders(headers, transformed = false) {
+  const result = { ...headers, ...SECURITY_HEADERS, "Cache-Control": "no-store" };
+  for (const name of HOP_BY_HOP_HEADERS) delete result[name];
+  if (transformed) delete result["content-length"];
+  return result;
+}
 
 function sendJson(res, statusCode, value, extraHeaders = {}) {
   const body = JSON.stringify(value);
@@ -261,6 +297,27 @@ async function readJsonBody(req) {
   }
 }
 
+async function readBufferedBody(req, maximumBytes = MAX_REQUEST_BYTES) {
+  const declaredSize = Number(req.headers["content-length"] || 0);
+  if (declaredSize > maximumBytes) {
+    const error = new Error("Request is too large");
+    error.statusCode = 413;
+    throw error;
+  }
+  const chunks = [];
+  let received = 0;
+  for await (const chunk of req) {
+    received += chunk.length;
+    if (received > maximumBytes) {
+      const error = new Error("Request is too large");
+      error.statusCode = 413;
+      throw error;
+    }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
 function safeControlError(error) {
   if (error?.killed) return "The model service switch timed out.";
   return String(error?.message || "The model service could not be switched.").split("\n")[0].slice(0, 240);
@@ -400,7 +457,7 @@ function proxyToModel(req, res, url) {
     return;
   }
 
-  const allowedPaths = new Set(["/v1/chat/completions", "/v1/models"]);
+  const allowedPaths = new Set(["/v1/chat/completions"]);
   if (!allowedPaths.has(url.pathname)) {
     sendJson(res, 404, { error: { message: "API route not found" } });
     return;
@@ -412,12 +469,7 @@ function proxyToModel(req, res, url) {
     return;
   }
 
-  const headers = { ...req.headers };
-  for (const name of ["connection", "host", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]) {
-    delete headers[name];
-  }
-  headers.host = `${UPSTREAM_HOST}:${UPSTREAM_PORT}`;
-  headers["accept-encoding"] = "identity";
+  const headers = upstreamHeaders(req);
 
   let received = 0;
   const upstream = http.request(
@@ -429,11 +481,7 @@ function proxyToModel(req, res, url) {
       headers,
     },
     (upstreamResponse) => {
-      const responseHeaders = { ...upstreamResponse.headers, ...SECURITY_HEADERS };
-      for (const name of ["connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade"]) {
-        delete responseHeaders[name];
-      }
-      responseHeaders["Cache-Control"] = "no-store";
+      const responseHeaders = downstreamHeaders(upstreamResponse.headers);
       res.writeHead(upstreamResponse.statusCode || 502, responseHeaders);
       upstreamResponse.pipe(res);
     },
@@ -464,6 +512,109 @@ function proxyToModel(req, res, url) {
   req.pipe(upstream);
 }
 
+async function handleCompatibleModels(req, res) {
+  if (req.method !== "GET") {
+    sendJson(res, 405, { error: { message: "Method not allowed" } }, { Allow: "GET" });
+    return;
+  }
+  const catalog = await requestModelCatalog();
+  if (!catalog) {
+    sendJson(res, 503, { error: { message: "The local model is still starting or is offline." } });
+    return;
+  }
+  sendJson(res, 200, addCodexModelMetadata(catalog, MODEL_CONFIGS));
+}
+
+async function proxyResponses(req, res, url) {
+  if (req.method !== "POST") {
+    sendJson(res, 405, { error: { message: "Method not allowed" } }, { Allow: "POST" });
+    return;
+  }
+  if (!String(req.headers["content-type"] || "").toLowerCase().startsWith("application/json")) {
+    sendJson(res, 415, { error: { message: "Content-Type must be application/json" } });
+    return;
+  }
+
+  let requestBody;
+  let rewritten;
+  try {
+    requestBody = await readBufferedBody(req);
+    rewritten = rewriteResponsesRequest(JSON.parse(requestBody.toString("utf8") || "{}"));
+  } catch (error) {
+    sendJson(res, error.statusCode || 400, {
+      error: { message: error.statusCode === 413 ? "Request is too large" : "Request body must be valid JSON" },
+    });
+    return;
+  }
+
+  const encodedBody = Buffer.from(JSON.stringify(rewritten.body));
+  const upstream = http.request(
+    {
+      hostname: UPSTREAM_HOST,
+      port: UPSTREAM_PORT,
+      method: "POST",
+      path: `${url.pathname}${url.search}`,
+      headers: upstreamHeaders(req, encodedBody.length),
+    },
+    (upstreamResponse) => {
+      const contentType = String(upstreamResponse.headers["content-type"] || "").toLowerCase();
+      const responseHeaders = downstreamHeaders(upstreamResponse.headers, true);
+      res.writeHead(upstreamResponse.statusCode || 502, responseHeaders);
+
+      if (contentType.includes("text/event-stream")) {
+        const transform = createResponsesSseTransform(rewritten.toolLookup);
+        transform.on("error", (error) => res.destroy(error));
+        upstreamResponse.pipe(transform).pipe(res);
+        return;
+      }
+
+      const chunks = [];
+      let received = 0;
+      upstreamResponse.on("data", (chunk) => {
+        received += chunk.length;
+        if (received > MAX_RESPONSE_BYTES) {
+          upstreamResponse.destroy(new Error("response too large"));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      upstreamResponse.on("end", () => {
+        const body = Buffer.concat(chunks);
+        if (contentType.includes("application/json")) {
+          try {
+            const payload = JSON.parse(body.toString("utf8"));
+            restoreNamespacedFunctionCalls(payload, rewritten.toolLookup);
+            res.end(JSON.stringify(payload));
+            return;
+          } catch {
+            // Preserve upstream error bodies that are not valid JSON.
+          }
+        }
+        res.end(body);
+      });
+      upstreamResponse.on("error", (error) => res.destroy(error));
+    },
+  );
+
+  upstream.on("error", (error) => {
+    if (!res.headersSent) {
+      sendJson(res, 502, {
+        error: {
+          message: error.code === "ECONNREFUSED"
+            ? "The local Qwen model is still starting or is offline. Try again shortly."
+            : "The local model connection failed.",
+        },
+      });
+    } else {
+      res.destroy(error);
+    }
+  });
+  res.on("close", () => {
+    if (!res.writableEnded) upstream.destroy();
+  });
+  upstream.end(encodedBody);
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
@@ -475,6 +626,16 @@ const server = http.createServer(async (req, res) => {
 
   if (url.pathname === "/api/models") {
     await handleModelsApi(req, res);
+    return;
+  }
+
+  if (url.pathname === "/v1/models") {
+    await handleCompatibleModels(req, res);
+    return;
+  }
+
+  if (url.pathname === "/v1/responses") {
+    await proxyResponses(req, res, url);
     return;
   }
 

@@ -112,8 +112,8 @@ journalctl -u qwen-chat-ui -u qwen36-q4 -u qwen36-q6 -f
 ```
 
 Edit `/etc/local-qwen-chat/settings.env` to change context size, thread counts,
-KV cache types, GPU fit headroom, or extra llama-server arguments. Then restart
-the selected model:
+KV cache types, GPU fit headroom, the local reasoning-token budget, or extra
+llama-server arguments. Then restart the selected model:
 
 ```bash
 sudo systemctl restart qwen36-q4   # or qwen36-q6
@@ -135,6 +135,27 @@ curl http://127.0.0.1:8090/v1/chat/completions \
 The browser additionally records response duration, time to first token, token
 counts, prompt/generation speed, cache use, and llama.cpp timing details.
 Conversations remain in that browser's local storage.
+
+### Codex CLI and MCP tools
+
+Use the web service on port 8090 as Codex's local endpoint. In addition to
+proxying llama.cpp, it publishes model metadata and translates Codex Responses
+API namespace tools to Qwen function calls and back. This lets current Codex
+versions route MCP calls correctly.
+
+```bash
+export CODEX_OSS_BASE_URL=http://127.0.0.1:8090/v1
+
+# Select Q4 in the web interface and wait for Ready, then:
+codex --oss --local-provider lmstudio --model qwen3.6-27b-q4
+
+# Select Q6 and wait for Ready, then:
+codex --oss --local-provider lmstudio --model qwen3.6-27b-q6
+```
+
+The `lmstudio` value selects Codex's local OpenAI-compatible provider adapter;
+llama.cpp remains the inference backend. The compatibility endpoint supports
+`/v1/models`, `/v1/responses`, and `/v1/chat/completions`.
 
 ## Security model
 
