@@ -17,6 +17,7 @@ trap cleanup EXIT
 bash -n \
   "$root/install.sh" \
   "$root/uninstall.sh" \
+  "$root/scripts/codex-local" \
   "$root/scripts/model-server" \
   "$root/scripts/model-selector" \
   "$root/scripts/diagnose.sh"
@@ -25,6 +26,7 @@ if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -x \
     "$root/install.sh" \
     "$root/uninstall.sh" \
+    "$root/scripts/codex-local" \
     "$root/scripts/model-server" \
     "$root/scripts/model-selector" \
     "$root/scripts/diagnose.sh"
@@ -32,11 +34,16 @@ fi
 
 node --check "$root/server.mjs"
 node --check "$root/public/app.js"
+node "$root/tests/codex-compat.mjs"
 
 plan="$($root/install.sh --dry-run --models both --backend cpu)"
 [[ "$plan" == *"Backend:         cpu"* ]]
 [[ "$plan" == *"Models:          both"* ]]
 [[ "$plan" == *"Dry run complete"* ]]
+
+codex_plan="$($root/install.sh --dry-run --models q4 --backend cpu --with-codex)"
+[[ "$codex_plan" == *"Models:          q4"* ]]
+[[ "$codex_plan" == *"Codex CLI:       v"*"(private runtime)"* ]]
 
 if "$root/install.sh" --dry-run --models invalid >/dev/null 2>&1; then
   printf 'install.sh accepted an invalid model choice\n' >&2
@@ -45,6 +52,7 @@ fi
 
 mkdir -p "$temp_dir/config" "$temp_dir/llama/bin" "$temp_dir/llama/lib" "$temp_dir/models"
 touch "$temp_dir/models/q4.gguf" "$temp_dir/models/q6.gguf"
+touch "$temp_dir/config/qwen3.6-codex.jinja"
 cat > "$temp_dir/llama/bin/llama-server" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$@"
@@ -66,6 +74,9 @@ EOF
 launcher_output="$(LOCAL_QWEN_CONFIG_DIR="$temp_dir/config" "$root/scripts/model-server" q4)"
 [[ "$launcher_output" == *"qwen3.6-27b-q4"* ]]
 [[ "$launcher_output" == *"--n-gpu-layers"* ]]
+[[ "$launcher_output" == *"--chat-template-file"* ]]
+[[ "$launcher_output" == *"--reasoning-format"* ]]
+[[ "$launcher_output" == *"--reasoning-budget"* ]]
 [[ "$launcher_output" == *$'0\n'* ]]
 
 sed -i 's/QWEN_BACKEND=cpu/QWEN_BACKEND=cuda/' "$temp_dir/config/paths.env"
@@ -88,6 +99,46 @@ selector_output="$(
 )"
 [[ "$selector_output" == *"stop qwen36-q4.service"* ]]
 [[ "$selector_output" == *"start qwen36-q6.service"* ]]
+
+mkdir -p "$temp_dir/bin"
+cat > "$temp_dir/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+if [[ "$*" == *"--request POST"* ]]; then
+  : > "$FAKE_CURL_STATE"
+  printf '{"transition":{"target":"q6"}}\n202'
+elif [[ -f "$FAKE_CURL_STATE" ]]; then
+  printf '{"servingModel":"q6"}'
+else
+  printf '{"servingModel":"q4"}'
+fi
+EOF
+cat > "$temp_dir/bin/codex" <<'EOF'
+#!/usr/bin/env bash
+printf 'base=%s\n' "$CODEX_OSS_BASE_URL"
+printf 'argument=%s\n' "$@"
+EOF
+chmod +x "$temp_dir/bin/curl" "$temp_dir/bin/codex"
+codex_output="$(
+  PATH="$temp_dir/bin:$PATH" \
+  CODEX_BIN="$temp_dir/bin/codex" \
+  FAKE_CURL_STATE="$temp_dir/fake-curl-state" \
+  "$root/scripts/codex-local" q4 --no-alt-screen
+)"
+[[ "$codex_output" == *"base=http://127.0.0.1:8090/v1"* ]]
+[[ "$codex_output" == *"argument=--oss"* ]]
+[[ "$codex_output" == *"argument=lmstudio"* ]]
+[[ "$codex_output" == *"argument=qwen3.6-27b-q4"* ]]
+[[ "$codex_output" == *"argument=--no-alt-screen"* ]]
+
+codex_output="$(
+  PATH="$temp_dir/bin:$PATH" \
+  CODEX_BIN="$temp_dir/bin/codex" \
+  FAKE_CURL_STATE="$temp_dir/fake-curl-state" \
+  "$root/scripts/codex-local" q6 --no-alt-screen
+)"
+[[ "$codex_output" == *"Selecting qwen3.6-27b-q6"* ]]
+[[ "$codex_output" == *"base=http://127.0.0.1:8090/v1"* ]]
+[[ "$codex_output" == *"argument=qwen3.6-27b-q6"* ]]
 
 CHAT_HOST=127.0.0.1 CHAT_PORT=18090 QWEN_PORT=18080 \
 QWEN_Q4_MODEL="$temp_dir/models/q4.gguf" QWEN_Q6_MODEL="$temp_dir/models/q6.gguf" \

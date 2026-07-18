@@ -25,6 +25,16 @@ That command installs build dependencies, a private Node.js runtime, a pinned
 llama.cpp build, both verified GGUF files, systemd services, and the web app. It
 then launches Q4 and waits until it is ready.
 
+For a coding-focused machine, install the recommended Q4 model and a private,
+pinned Codex CLI in the same command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/waskosky/local-qwen-chat/main/install.sh | sudo bash -s -- --models q4 --with-codex --yes
+```
+
+Then run `local-qwen-codex q4`. The private Codex installation uses the bundled
+Node.js runtime and does not replace a user-managed `node`, `npm`, or `codex`.
+
 If Tailscale is already connected, the installer also attempts to configure a
 tailnet-only HTTPS URL with Tailscale Serve. Otherwise, open:
 
@@ -81,6 +91,9 @@ sudo ./install.sh --backend cpu --yes
 
 # Install everything without starting it or changing Tailscale Serve.
 sudo ./install.sh --no-start --no-tailscale --yes
+
+# Include a pinned private Codex CLI for local coding-agent use.
+sudo ./install.sh --models q4 --with-codex --yes
 ```
 
 The installer is idempotent. Re-running it skips verified downloads and matching
@@ -97,6 +110,7 @@ files and units, then safely restarts only the selected model.
 | `/etc/local-qwen-chat/settings.env` | User-editable runtime tuning |
 | `/etc/local-qwen-chat/paths.env` | Installer-managed paths and backend |
 | `/usr/local/libexec/local-qwen-chat` | Model launch/control scripts |
+| `/usr/local/bin/local-qwen-codex` | Model-selecting Codex CLI launcher |
 | `/etc/systemd/system/qwen*.service` | Model selector, llama.cpp, and UI services |
 
 Model downloads are resumable and verified against pinned SHA-256 hashes. The
@@ -112,8 +126,8 @@ journalctl -u qwen-chat-ui -u qwen36-q4 -u qwen36-q6 -f
 ```
 
 Edit `/etc/local-qwen-chat/settings.env` to change context size, thread counts,
-KV cache types, GPU fit headroom, or extra llama-server arguments. Then restart
-the selected model:
+KV cache types, GPU fit headroom, the local reasoning-token budget, or extra
+llama-server arguments. Then restart the selected model:
 
 ```bash
 sudo systemctl restart qwen36-q4   # or qwen36-q6
@@ -135,6 +149,50 @@ curl http://127.0.0.1:8090/v1/chat/completions \
 The browser additionally records response duration, time to first token, token
 counts, prompt/generation speed, cache use, and llama.cpp timing details.
 Conversations remain in that browser's local storage.
+
+### Codex CLI and MCP tools
+
+Use the web service on port 8090 as Codex's local endpoint. In addition to
+proxying llama.cpp, it publishes model metadata and translates Codex Responses
+API namespace tools to Qwen function calls and back. This lets current Codex
+versions route MCP calls correctly.
+
+If the installer was not run with `--with-codex`, install Codex CLI once for the
+Linux user who will run it:
+
+```bash
+npm install --global @openai/codex
+```
+
+The installed launcher selects the requested quantization, waits for its cold
+start to finish, supplies the compatibility URL, and starts Codex:
+
+```bash
+local-qwen-codex q4
+local-qwen-codex q6
+```
+
+Any remaining arguments are passed directly to Codex. For example:
+
+```bash
+local-qwen-codex q4 --cd ~/src/my-project --no-alt-screen
+```
+
+The equivalent manual commands are:
+
+```bash
+export CODEX_OSS_BASE_URL=http://127.0.0.1:8090/v1
+
+# Select Q4 in the web interface and wait for Ready, then:
+codex --oss --local-provider lmstudio --model qwen3.6-27b-q4
+
+# Select Q6 and wait for Ready, then:
+codex --oss --local-provider lmstudio --model qwen3.6-27b-q6
+```
+
+The `lmstudio` value selects Codex's local OpenAI-compatible provider adapter;
+llama.cpp remains the inference backend. The compatibility endpoint supports
+`/v1/models`, `/v1/responses`, and `/v1/chat/completions`.
 
 ## Security model
 
