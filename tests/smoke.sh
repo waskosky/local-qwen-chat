@@ -20,7 +20,8 @@ bash -n \
   "$root/scripts/codex-local" \
   "$root/scripts/model-server" \
   "$root/scripts/model-selector" \
-  "$root/scripts/diagnose.sh"
+  "$root/scripts/diagnose.sh" \
+  "$root/scripts/context-report"
 
 if command -v shellcheck >/dev/null 2>&1; then
   shellcheck -x \
@@ -29,8 +30,11 @@ if command -v shellcheck >/dev/null 2>&1; then
     "$root/scripts/codex-local" \
     "$root/scripts/model-server" \
     "$root/scripts/model-selector" \
-    "$root/scripts/diagnose.sh"
+    "$root/scripts/diagnose.sh" \
+    "$root/scripts/context-report"
 fi
+
+"$root/scripts/context-report" --help >/dev/null
 
 node --check "$root/server.mjs"
 node --check "$root/public/app.js"
@@ -103,6 +107,23 @@ selector_output="$(
 mkdir -p "$temp_dir/bin"
 cat > "$temp_dir/bin/curl" <<'EOF'
 #!/usr/bin/env bash
+output=""
+previous=""
+for argument in "$@"; do
+  if [[ "$previous" == "--output" ]]; then
+    output="$argument"
+    break
+  fi
+  previous="$argument"
+done
+if [[ "$*" == *"/v1/models"* ]]; then
+  if [[ -n "$output" ]]; then
+    printf '{"models":[]}\n' > "$output"
+  else
+    printf '{"models":[]}\n'
+  fi
+  exit 0
+fi
 if [[ "$*" == *"--request POST"* ]]; then
   : > "$FAKE_CURL_STATE"
   printf '{"transition":{"target":"q6"}}\n202'
@@ -115,6 +136,7 @@ EOF
 cat > "$temp_dir/bin/codex" <<'EOF'
 #!/usr/bin/env bash
 printf 'base=%s\n' "$CODEX_OSS_BASE_URL"
+printf 'rust_log=%s\n' "$RUST_LOG"
 printf 'argument=%s\n' "$@"
 EOF
 chmod +x "$temp_dir/bin/curl" "$temp_dir/bin/codex"
@@ -122,18 +144,23 @@ codex_output="$(
   PATH="$temp_dir/bin:$PATH" \
   CODEX_BIN="$temp_dir/bin/codex" \
   FAKE_CURL_STATE="$temp_dir/fake-curl-state" \
+  LOCAL_QWEN_STATE_DIR="$temp_dir/state" \
   "$root/scripts/codex-local" q4 --no-alt-screen
 )"
 [[ "$codex_output" == *"base=http://127.0.0.1:8090/v1"* ]]
+[[ "$codex_output" == *"rust_log=error"* ]]
 [[ "$codex_output" == *"argument=--oss"* ]]
 [[ "$codex_output" == *"argument=lmstudio"* ]]
 [[ "$codex_output" == *"argument=qwen3.6-27b-q4"* ]]
+[[ "$codex_output" == *"argument=model_catalog_json="*"state/catalogs/q4.json"* ]]
+[[ "$codex_output" == *"argument=log_dir="*"state/codex"* ]]
 [[ "$codex_output" == *"argument=--no-alt-screen"* ]]
 
 codex_output="$(
   PATH="$temp_dir/bin:$PATH" \
   CODEX_BIN="$temp_dir/bin/codex" \
   FAKE_CURL_STATE="$temp_dir/fake-curl-state" \
+  LOCAL_QWEN_STATE_DIR="$temp_dir/state" \
   "$root/scripts/codex-local" q6 --no-alt-screen
 )"
 [[ "$codex_output" == *"Selecting qwen3.6-27b-q6"* ]]

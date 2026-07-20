@@ -111,6 +111,7 @@ files and units, then safely restarts only the selected model.
 | `/etc/local-qwen-chat/paths.env` | Installer-managed paths and backend |
 | `/usr/local/libexec/local-qwen-chat` | Model launch/control scripts |
 | `/usr/local/bin/local-qwen-codex` | Model-selecting Codex CLI launcher |
+| `/usr/local/bin/local-qwen-context-report` | Bounded Codex/MCP context diagnostics |
 | `/etc/systemd/system/qwen*.service` | Model selector, llama.cpp, and UI services |
 
 Model downloads are resumable and verified against pinned SHA-256 hashes. The
@@ -121,6 +122,7 @@ llama.cpp Git commit before building.
 
 ```bash
 local-qwen-diagnose
+local-qwen-context-report
 systemctl status qwen-chat-ui qwen36-q4 qwen36-q6
 journalctl -u qwen-chat-ui -u qwen36-q4 -u qwen36-q6 -f
 ```
@@ -129,12 +131,11 @@ Edit `/etc/local-qwen-chat/settings.env` to change context size, thread counts,
 KV cache types, GPU fit headroom, the local reasoning-token budget, or extra
 llama-server arguments. Then restart the selected model:
 
-The default context is 32,768 tokens. This leaves enough room for Codex's base
-instructions, skills, and a minimal MCP tool profile while still allowing
-multi-turn work; the advertised metadata asks Codex to compact near 65% of the
-window, leaving safety room for tool results and tokenizer-estimation variance.
-Context consumes KV-cache memory, so memory-constrained machines can
-lower `QWEN_CTX_SIZE` at the cost of shorter agent sessions.
+The default context is 49,152 tokens. The advertised metadata asks Codex to
+compact at 60% of the hard window (29,491 tokens), leaving 19,661 tokens of hard
+headroom for MCP schemas and results that can arrive in one turn. Context
+consumes KV-cache memory, so memory-constrained machines can lower
+`QWEN_CTX_SIZE` at the cost of shorter agent sessions.
 
 ```bash
 sudo systemctl restart qwen36-q4   # or qwen36-q6
@@ -172,12 +173,53 @@ npm install --global @openai/codex
 ```
 
 The installed launcher selects the requested quantization, waits for its cold
-start to finish, supplies the compatibility URL, and starts Codex:
+start to finish, supplies the compatibility URL, snapshots the active model's
+metadata into Codex's startup catalog, enables a private native Codex log, and
+starts Codex:
 
 ```bash
 local-qwen-codex q4
 local-qwen-codex q6
 ```
+
+The native log is written to
+`~/.local/state/local-qwen-chat/codex/codex-tui.log` and rotated at 50 MiB,
+with three old generations retained. Override its verbosity with
+`LOCAL_QWEN_RUST_LOG`; for example, use `LOCAL_QWEN_RUST_LOG=debug` for a
+short, targeted reproduction and return to the `error` default afterward.
+
+### Context and MCP diagnostics
+
+Codex already stores complete rollout JSONL files under `~/.codex/sessions`,
+while llama.cpp records exact prompt-token counts and provider errors in the
+system journal. Duplicating all of that by default wastes disk and creates a
+second store of prompts, source, and secrets. Generate one correlated,
+timestamped report instead:
+
+```bash
+local-qwen-context-report
+local-qwen-context-report --since "6 hours ago"
+```
+
+Reports are private to the current user under
+`~/.local/state/local-qwen-chat/reports`. They include model/compaction
+metadata, resource use, recent token and error lines, Codex/MCP warning tails,
+rollout paths and sizes, and full-capture inventory. They reference complete
+rollouts instead of copying their bodies.
+
+For a difficult short reproduction, complete terminal input/output recording
+is available explicitly:
+
+```bash
+LOCAL_QWEN_FULL_CAPTURE=1 LOCAL_QWEN_RUST_LOG=debug local-qwen-codex q4
+```
+
+Full captures live under `~/.local/state/local-qwen-chat/captures`. Debug logs
+and full captures can contain prompts, pasted source, terminal output,
+credentials, and other secrets; protect or delete them when the diagnosis is
+complete. Restart Codex after any context-size change so it reloads the model
+metadata. In long or tool-heavy work, `/compact` remains a useful proactive
+escape hatch.
 
 Any remaining arguments are passed directly to Codex. For example:
 

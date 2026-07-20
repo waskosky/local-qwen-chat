@@ -56,7 +56,7 @@ fi
 args=(
   --model "$model"
   --alias "$alias"
-  --ctx-size "${QWEN_CTX_SIZE:-32768}"
+  --ctx-size "${QWEN_CTX_SIZE:-49152}"
   --parallel "${QWEN_PARALLEL:-1}"
   --cache-type-k "${QWEN_CACHE_TYPE_K:-q8_0}"
   --cache-type-v "${QWEN_CACHE_TYPE_V:-q8_0}"

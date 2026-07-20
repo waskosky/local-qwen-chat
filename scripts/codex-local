@@ -14,8 +14,27 @@ Environment:
   LOCAL_QWEN_MODEL=q4|q6       Default model when none is specified
   LOCAL_QWEN_URL=URL           Local Qwen Chat URL (default: http://127.0.0.1:8090)
   LOCAL_QWEN_READY_TIMEOUT=N   Ready timeout in seconds (default: 600)
+  LOCAL_QWEN_RUST_LOG=FILTER   Native Codex log filter (default: error)
+  LOCAL_QWEN_LOG_MAX_BYTES=N   Rotate codex-tui.log at this size (default: 52428800)
+  LOCAL_QWEN_FULL_CAPTURE=1    Opt in to a complete terminal input/output recording
+  LOCAL_QWEN_CODEX_MODEL_CATALOG=FILE  Use a prebuilt Codex model catalog
   CODEX_BIN=PATH               Codex executable (default: codex from PATH)
 EOF
+}
+
+rotate_codex_log() {
+  local log_file="$1" max_bytes="$2" size generation
+  [[ -f "$log_file" ]] || return 0
+  size="$(stat -c '%s' "$log_file" 2>/dev/null || printf '0')"
+  (( size >= max_bytes )) || return 0
+
+  rm -f -- "${log_file}.3"
+  for generation in 2 1; do
+    if [[ -f "${log_file}.${generation}" ]]; then
+      mv -- "${log_file}.${generation}" "${log_file}.$((generation + 1))"
+    fi
+  done
+  mv -- "$log_file" "${log_file}.1"
 }
 
 model="${LOCAL_QWEN_MODEL:-q4}"
@@ -43,9 +62,16 @@ base_url="${LOCAL_QWEN_URL:-http://127.0.0.1:8090}"
 base_url="${base_url%/}"
 ready_timeout="${LOCAL_QWEN_READY_TIMEOUT:-600}"
 codex_bin="${CODEX_BIN:-}"
+state_root="${LOCAL_QWEN_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/local-qwen-chat}"
+codex_log_dir="${LOCAL_QWEN_CODEX_LOG_DIR:-$state_root/codex}"
+log_max_bytes="${LOCAL_QWEN_LOG_MAX_BYTES:-52428800}"
 
 if [[ ! "$ready_timeout" =~ ^[1-9][0-9]*$ ]]; then
   printf 'LOCAL_QWEN_READY_TIMEOUT must be a positive integer.\n' >&2
+  exit 2
+fi
+if [[ ! "$log_max_bytes" =~ ^[1-9][0-9]*$ ]]; then
+  printf 'LOCAL_QWEN_LOG_MAX_BYTES must be a positive integer.\n' >&2
   exit 2
 fi
 if ! command -v curl >/dev/null 2>&1; then
@@ -128,5 +154,70 @@ if [[ "$status" != *"\"servingModel\":\"$model\""* ]]; then
 fi
 
 export CODEX_OSS_BASE_URL="$base_url/v1"
+export RUST_LOG="${RUST_LOG:-${LOCAL_QWEN_RUST_LOG:-error}}"
+umask 077
+mkdir -p -- "$codex_log_dir"
+chmod 0700 "$state_root" "$codex_log_dir" 2>/dev/null || true
+rotate_codex_log "$codex_log_dir/codex-tui.log" "$log_max_bytes"
+
+if [[ -n "${LOCAL_QWEN_CODEX_MODEL_CATALOG:-}" ]]; then
+  model_catalog="$LOCAL_QWEN_CODEX_MODEL_CATALOG"
+  if [[ ! -r "$model_catalog" ]]; then
+    printf 'LOCAL_QWEN_CODEX_MODEL_CATALOG is not readable: %s\n' "$model_catalog" >&2
+    exit 1
+  fi
+else
+  catalog_dir="$state_root/catalogs"
+  model_catalog="$catalog_dir/$model.json"
+  catalog_temp="$model_catalog.tmp.$$"
+  mkdir -p -- "$catalog_dir"
+  chmod 0700 "$catalog_dir" 2>/dev/null || true
+  if ! curl --silent --show-error --fail --max-time 10 \
+    --output "$catalog_temp" "$base_url/v1/models"; then
+    rm -f -- "$catalog_temp"
+    printf 'Could not snapshot local model metadata from %s/v1/models.\n' "$base_url" >&2
+    exit 1
+  fi
+  chmod 0600 "$catalog_temp"
+  mv -- "$catalog_temp" "$model_catalog"
+fi
+
+codex_command=(
+  "$codex_bin"
+  --oss
+  --local-provider lmstudio
+  --model "$model_id"
+  -c "model_catalog_json=\"$model_catalog\""
+  -c "log_dir=\"$codex_log_dir\""
+  "$@"
+)
+
 printf 'Starting Codex with %s via %s\n' "$model_id" "$CODEX_OSS_BASE_URL"
-exec "$codex_bin" --oss --local-provider lmstudio --model "$model_id" "$@"
+printf 'Model metadata: %s\n' "$model_catalog"
+printf 'Native Codex log: %s/codex-tui.log\n' "$codex_log_dir"
+
+if [[ "${LOCAL_QWEN_FULL_CAPTURE:-0}" == "1" ]]; then
+  if ! command -v script >/dev/null 2>&1; then
+    printf 'LOCAL_QWEN_FULL_CAPTURE requires the util-linux script command.\n' >&2
+    exit 1
+  fi
+  capture_dir="$state_root/captures"
+  mkdir -p -- "$capture_dir"
+  chmod 0700 "$capture_dir" 2>/dev/null || true
+  capture_stamp="$(date -u +%Y%m%dT%H%M%SZ)-$$-$model"
+  capture_file="$capture_dir/$capture_stamp.io"
+  timing_file="$capture_dir/$capture_stamp.timing"
+  printf 'Full capture enabled: %s\n' "$capture_file"
+  printf 'Warning: this records prompts, pasted source, terminal output, and secrets.\n'
+  printf -v quoted_command '%q ' "${codex_command[@]}"
+  set +e
+  script --quiet --flush --return --logging-format advanced \
+    --log-io "$capture_file" --log-timing "$timing_file" \
+    --command "$quoted_command"
+  capture_status=$?
+  set -e
+  printf 'Full capture saved: %s\n' "$capture_file"
+  exit "$capture_status"
+fi
+
+exec "${codex_command[@]}"
