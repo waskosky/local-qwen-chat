@@ -486,6 +486,7 @@ install_application() {
   install -m 0755 "$PROJECT_SOURCE/scripts/model-server" "$LIBEXEC_DIR/model-server"
   install -m 0755 "$PROJECT_SOURCE/scripts/model-selector" "$LIBEXEC_DIR/model-selector"
   install -m 0755 "$PROJECT_SOURCE/scripts/diagnose.sh" /usr/local/bin/local-qwen-diagnose
+  install -m 0755 "$PROJECT_SOURCE/scripts/context-report" /usr/local/bin/local-qwen-context-report
   install -m 0755 "$PROJECT_SOURCE/scripts/codex-local" /usr/local/bin/local-qwen-codex
   install -m 0644 "$PROJECT_SOURCE/config/qwen3.6-codex.jinja" "$CONFIG_DIR/qwen3.6-codex.jinja"
 
@@ -618,6 +619,7 @@ if [[ -n "$TAILSCALE_URL" ]]; then
 fi
 printf '\nUseful commands:\n'
 printf '  local-qwen-diagnose\n'
+printf '  local-qwen-context-report\n'
 printf '  systemctl status qwen-chat-ui qwen36-q4 qwen36-q6\n'
 printf '  journalctl -u qwen-chat-ui -u qwen36-q4 -u qwen36-q6 -f\n'
 printf '\nCodex CLI:\n'

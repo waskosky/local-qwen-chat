@@ -21,3 +21,5 @@ printf '\nRecent service logs\n'
 journalctl \
   -u qwen-chat-ui.service -u qwen36-q4.service -u qwen36-q6.service \
   --no-pager -n 30 2>/dev/null || true
+
+printf '\nFor a correlated context/MCP report, run local-qwen-context-report.\n'

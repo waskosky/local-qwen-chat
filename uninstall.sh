@@ -34,6 +34,7 @@ rm -f \
   /etc/systemd/system/qwen36-q4.service \
   /etc/systemd/system/qwen36-q6.service \
   /usr/local/bin/local-qwen-diagnose \
+  /usr/local/bin/local-qwen-context-report \
   /usr/local/bin/local-qwen-codex
 rm -rf /usr/local/libexec/local-qwen-chat /opt/local-qwen-chat /var/cache/local-qwen-chat /etc/local-qwen-chat
 
